@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Estacionamiento</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+
+  <!-- Login -->
+  <section id="vista-login" class="vista centro">
+    <form id="form-login" class="tarjeta login">
+      <span class="logo">P</span>
+      <h1>Modo admin</h1>
+      <p class="suave">Gestión de cámaras y lugares</p>
+      <input id="password" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="primario" type="submit">Entrar</button>
+      <p id="error-login" class="error" hidden></p>
+      <a href="/" class="suave chico">← Volver al mapa</a>
+    </form>
+  </section>
+
+  <!-- Lista de cámaras -->
+  <section id="vista-lista" class="vista" hidden>
+    <header class="cabecera">
+      <div class="titulo"><span class="logo">P</span><h1>Cámaras</h1></div>
+      <div class="acciones">
+        <a href="/" class="boton">Ver mapa</a>
+        <button id="nueva-camara" class="primario">+ Agregar cámara</button>
+        <button id="salir" class="boton">Salir</button>
+      </div>
+    </header>
+    <main class="contenido">
+      <div id="lista-camaras" class="grilla"></div>
+    </main>
+  </section>
+
+  <!-- Asistente: agregar / editar cámara -->
+  <section id="vista-asistente" class="vista" hidden>
+    <header class="cabecera">
+      <div class="titulo"><button id="volver" class="boton">←</button><h1 id="titulo-asistente">Agregar cámara</h1></div>
+      <ol id="pasos" class="pasos">
+        <li data-paso="1">Datos</li>
+        <li data-paso="2">Ubicación</li>
+        <li data-paso="3">Foto</li>
+        <li data-paso="4">Lugares</li>
+        <li data-paso="5">Confirmar</li>
+      </ol>
+    </header>
+
+    <main class="contenido">
+      <!-- Paso 1 -->
+      <div class="paso tarjeta" data-paso="1">
+        <h2>1. Datos de la cámara</h2>
+        <label>ID de la cámara
+          <input id="campo-id" pattern="[a-z0-9_]{1,40}" placeholder="camara_2" required>
+          <small>Minúsculas, números y _. Es el nombre de su carpeta en <code>camaras/</code>.</small>
+        </label>
+        <label>Nombre de la cuadra
+          <input id="campo-nombre" placeholder="Av. Corrientes al 4500 (vereda par)" required>
+        </label>
+        <label>Dirección / referencia
+          <input id="campo-direccion" placeholder="Entre Medrano y Gascón">
+        </label>
+        <label class="fila"><input id="campo-activa" type="checkbox" checked> Cámara activa (se procesan sus fotos y aparece en el mapa)</label>
+
+        <h2 class="subtitulo">¿Cómo llegan las fotos?</h2>
+        <div class="opciones-fuente">
+          <label class="opcion"><input type="radio" name="fuente-tipo" value="envio" checked>
+            <span><strong>La cámara las manda</strong><small>Un dispositivo (PC, Raspberry, celular con el script) hace un POST con la API key.</small></span></label>
+          <label class="opcion"><input type="radio" name="fuente-tipo" value="video">
+            <span><strong>El servidor las busca: video</strong><small>Cámara de seguridad IP por RTSP, stream HTTP (IP Webcam), número de webcam o archivo de video.</small></span></label>
+          <label class="opcion"><input type="radio" name="fuente-tipo" value="foto">
+            <span><strong>El servidor las busca: URL de foto</strong><small>Una dirección que devuelve una foto por pedido (snapshot ONVIF, /shot.jpg de IP Webcam).</small></span></label>
+        </div>
+        <div id="campos-fuente" hidden>
+          <label>Dirección
+            <input id="fuente-url" autocomplete="off" spellcheck="false">
+            <small id="ayuda-url"></small>
+          </label>
+          <label>Tomar una foto cada (segundos)
+            <input id="fuente-intervalo" type="number" min="2" max="300" step="1" value="10">
+            <small>Tiene que ser bastante menor a 45 s (lo que tarda en confirmarse un lugar ocupado). 10 está bien.</small>
+          </label>
+          <div class="fila-botones">
+            <button id="probar-fuente" class="boton" type="button">Probar conexión</button>
+            <span id="resultado-prueba" class="suave chico"></span>
+          </div>
+          <img id="foto-prueba" class="vista-previa" alt="Foto de prueba de la cámara" hidden>
+        </div>
+      </div>
+
+      <!-- Paso 2 -->
+      <div class="paso tarjeta" data-paso="2">
+        <h2>2. Ubicación</h2>
+        <p class="suave">Elegí qué marcar y tocá el mapa. Los puntos se pueden arrastrar para ajustarlos.</p>
+        <div class="modos">
+          <label><input type="radio" name="modo-mapa" value="camara" checked> <i class="punto azul"></i> Posición de la cámara</label>
+          <label><input type="radio" name="modo-mapa" value="inicio"> <i class="punto verde"></i> Inicio de la cuadra</label>
+          <label><input type="radio" name="modo-mapa" value="fin"> <i class="punto rojo"></i> Fin de la cuadra</label>
+          <button id="mi-ubicacion" class="boton chico" type="button">Ir a mi ubicación</button>
+        </div>
+        <div id="mapa-admin"></div>
+        <p id="coords" class="suave chico"></p>
+      </div>
+
+      <!-- Paso 3 -->
+      <div class="paso tarjeta" data-paso="3">
+        <h2>3. Foto de referencia</h2>
+        <p class="suave">Una foto de la cámara, desde su posición final. Sobre esta foto se marcan los lugares.</p>
+        <div class="fila-botones">
+          <button id="tomar-de-camara" class="boton" type="button" hidden>Tomar foto desde la cámara</button>
+          <label class="boton">Subir foto… <input id="archivo-referencia" type="file" accept="image/jpeg,image/png" hidden></label>
+          <button id="usar-ultima" class="boton" type="button" hidden>Usar la última foto que mandó la cámara</button>
+        </div>
+        <p id="info-referencia" class="suave chico"></p>
+        <img id="vista-referencia" class="vista-previa" alt="" hidden>
+      </div>
+
+      <!-- Paso 4 -->
+      <div class="paso tarjeta ancha" data-paso="4">
+        <h2>4. Delimitar lugares</h2>
+        <p class="suave">Tocá las esquinas de cada lugar (4 puntos, justo donde apoya el auto) y cerralo.
+          Atajos: <kbd>N</kbd> válido · <kbd>P</kbd> prohibido · <kbd>Z</kbd> deshacer.</p>
+        <div class="fila-botones">
+          <button id="cerrar-valido" class="boton verde" type="button">Cerrar como lugar válido</button>
+          <button id="cerrar-prohibido" class="boton naranja" type="button">Cerrar como zona prohibida</button>
+          <button id="deshacer" class="boton" type="button">Deshacer</button>
+          <button id="borrar-todo" class="boton" type="button">Borrar todo</button>
+        </div>
+        <div class="editor">
+          <canvas id="lienzo"></canvas>
+          <aside>
+            <p><strong id="cuenta-validos">0</strong> lugares válidos <span class="suave">(capacidad de la cuadra)</span></p>
+            <ul id="lista-espacios"></ul>
+          </aside>
+        </div>
+      </div>
+
+      <!-- Paso 5 -->
+      <div class="paso tarjeta" data-paso="5">
+        <h2 id="titulo-confirmar">5. Confirmar</h2>
+        <div id="resumen"></div>
+      </div>
+
+      <p id="error-asistente" class="error" hidden></p>
+      <div class="navegacion">
+        <button id="anterior" class="boton" type="button">Anterior</button>
+        <button id="siguiente" class="primario" type="button">Siguiente</button>
+      </div>
+    </main>
+  </section>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/admin/admin.js"></script>
+</body>
+</html>

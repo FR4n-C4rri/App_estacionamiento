@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lugares para estacionar</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/usuario/usuario.css">
+</head>
+<body>
+  <div id="mapa"></div>
+
+  <header class="barra">
+    <div class="marca">
+      <span class="logo">P</span>
+      <div>
+        <strong>Lugares para estacionar</strong>
+        <small id="subtitulo">Tocá el botón para ver las cuadras cerca tuyo</small>
+      </div>
+    </div>
+    <label class="radio">
+      Radio
+      <select id="radio">
+        <option value="300">300 m</option>
+        <option value="500" selected>500 m</option>
+        <option value="1000">1 km</option>
+        <option value="2000">2 km</option>
+      </select>
+    </label>
+  </header>
+
+  <div class="leyenda">
+    <span><i class="punto verde"></i>Hay lugar</span>
+    <span><i class="punto amarillo"></i>Casi lleno</span>
+    <span><i class="punto rojo"></i>Lleno</span>
+    <span><i class="punto gris"></i>Sin datos</span>
+  </div>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <section id="panel" class="panel" hidden>
+    <div class="panel-cabecera">
+      <strong id="panel-titulo">Cuadras cerca</strong>
+      <button id="cerrar-panel" class="icono" aria-label="Cerrar lista">✕</button>
+    </div>
+    <ul id="lista"></ul>
+  </section>
+
+  <button id="buscar" class="boton-buscar">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2h-2.06zM12 19a7 7 0 1 1 0-14 7 7 0 0 1 0 14z"/></svg>
+    <span>Buscar lugares cerca mío</span>
+  </button>
+
+  <a class="link-admin" href="/admin">Admin</a>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/usuario/usuario.js"></script>
+</body>
+</html>

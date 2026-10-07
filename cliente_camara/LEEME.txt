@@ -1,0 +1,27 @@
+CÁMARA PARA EL SISTEMA DE ESTACIONAMIENTO
+=========================================
+
+Esta carpeta es lo único que necesitás para conectar una cámara desde tu
+casa. La compu donde la uses tiene que poder ver la cámara (webcam
+conectada, o celular / cámara IP en tu misma wifi) y tener internet.
+
+1. Instalá Python (una sola vez): https://www.python.org/downloads/
+   Durante la instalación tildá "Add python.exe to PATH".
+
+2. Guardá en esta carpeta el archivo camara.ini que te pasaron.
+   Abrilo con el Bloc de notas y revisá la línea "fuente":
+     0                                  -> webcam de esta compu
+     http://IP-DEL-CELU:8080/video      -> celular con la app IP Webcam
+     rtsp://usuario:clave@IP-CAMARA/... -> cámara de seguridad IP
+
+3. Doble clic en iniciar_camara.bat
+   (la primera vez instala lo que falta). Tiene que aparecer
+   "enviada (...)" cada 10 segundos. Dejá la ventana abierta.
+
+PROBLEMAS COMUNES
+- "No pude abrir la cámara": la dirección de "fuente" está mal o la
+  cámara no está en la misma red. Probala primero en VLC
+  (Medios > Abrir ubicación de red).
+- "Error enviando" varias veces seguidas: el link del servidor cambió.
+  Pedí el nuevo y cambiá la línea "servidor" en camara.ini.
+- "401": la key no coincide. Pedí un camara.ini nuevo.

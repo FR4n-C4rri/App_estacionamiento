@@ -1,0 +1,15 @@
+# --- Datos y secretos: se quedan solo en cada compu ---
+.env
+link_publico.txt
+cliente_camara/camara.ini
+camaras/
+base_de_datos/*.db
+base_de_datos/*.db-*
+
+# --- Archivos temporales de Python ---
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# --- Paquetes armados a mano ---
+*.zip

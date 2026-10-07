@@ -1,0 +1,21 @@
+; Configuración de la cámara. Lo normal es descargar este archivo ya
+; completo desde el modo admin ("Descargar camara.ini"); este es solo un
+; ejemplo. Guardalo como camara.ini en esta misma carpeta.
+
+[camara]
+; Link del servidor (el que te pasa quien administra el sistema).
+; Si se reinicia el túnel, el link cambia: actualizalo acá.
+servidor = https://xxxx.trycloudflare.com
+
+; ID y clave de la cámara (no cambian)
+id = camara_3
+key = pegar-aca-la-api-key
+
+; De dónde sacar la imagen:
+;   0                                    webcam de esta compu
+;   http://192.168.0.20:8080/video       celular con la app IP Webcam
+;   rtsp://usuario:clave@192.168.0.50:554/Streaming/Channels/101   cámara IP
+fuente = 0
+
+; Cada cuántos segundos mandar una foto (bastante menos que 45)
+intervalo = 10

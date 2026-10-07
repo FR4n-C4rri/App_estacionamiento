@@ -4,8 +4,37 @@ Cámaras que sacan fotos de una cuadra → YOLO (`best.pt`) detecta autos y
 volquetes → se calcula cuántos de los lugares delimitados están ocupados →
 un mapa muestra, cerca del usuario, cuántos lugares libres hay en cada cuadra.
 
-Usa la misma lógica del proyecto original (`../Ciudades`): polígonos
-`valido` / `prohibido` y confirmación por racha (45 s autos, 5 s volquetes).
+Un lugar se considera ocupado cuando un auto (o volquete) está dentro de su
+polígono de forma continua durante 45 s (5 s volquetes), para no contar
+autos que solo pasan o esperan el semáforo.
+
+## Inicio rápido (si lo acabás de descargar)
+
+1. **Instalá Python 3.11 o más nuevo** desde https://www.python.org/downloads/
+   (en Windows, tildá **"Add python.exe to PATH"** durante la instalación).
+2. **Bajá el proyecto**: botón verde *Code* → *Download ZIP* y descomprimilo,
+   o `git clone https://github.com/FR4n-C4rri/App_estacionamiento.git`.
+3. **Abrí una terminal en la carpeta del proyecto** (en el Explorador:
+   clic derecho en la carpeta → *Abrir en Terminal*) e instalá lo necesario
+   (una sola vez; tarda unos minutos porque baja PyTorch):
+   ```
+   py -m pip install -r requirements.txt
+   ```
+   En Mac/Linux usá `python3` en vez de `py` en todos los comandos.
+4. **Arrancá la app**:
+   ```
+   py -m uvicorn servidor.main:app --port 8000
+   ```
+   y entrá a http://localhost:8000/ (mapa) o http://localhost:8000/admin
+   (contraseña inicial: `admin`; cambiala creando un archivo `.env` con
+   `ADMIN_PASSWORD=tu-clave`, ver `.env.example`).
+5. **La app arranca sin cámaras.** Cargá la primera desde el admin con
+   **"+ Agregar cámara"** (ubicación en el mapa, una foto de la cuadra y los
+   lugares marcados sobre la foto). Para probar sin cámara real, en la
+   tarjeta de la cámara usá **"Mandar foto de prueba"** dos veces, con 45 s
+   de diferencia.
+
+Para publicarla en internet o conectar cámaras de otras casas, ver más abajo.
 
 ## Organización
 
@@ -110,7 +139,9 @@ py -m scripts.simular_camaras --intervalo 10
 ```
 
 Toma las fotos de `muestras/<id_camara>/` y las va dejando en
-`camaras/<id_camara>/fotos/` cada 10 s. Con `--http http://localhost:8000`
+`camaras/<id_camara>/fotos/` cada 10 s. Viene una foto de ejemplo en
+`muestras/camara_1/`: para usarla, primero creá en el admin una cámara con
+ID `camara_1` usando esa misma foto como referencia. Con `--http http://localhost:8000`
 las manda por HTTP como una cámara real. También se puede copiar fotos a
 mano a `camaras/<id>/fotos/` o usar "Mandar foto de prueba" en el admin.
 

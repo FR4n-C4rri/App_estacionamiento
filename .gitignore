@@ -13,3 +13,7 @@ __pycache__/
 
 # --- Paquetes armados a mano ---
 *.zip
+
+# --- Entorno virtual (Linux/Mac) ---
+.venv/
+venv/

@@ -20,12 +20,15 @@ autos que solo pasan o esperan el semáforo.
    ```
    py -m pip install -r requirements.txt
    ```
-   En Mac/Linux usá `python3` en vez de `py` en todos los comandos.
+   **En Linux o Mac** se usa un entorno virtual (en Ubuntu/Debian, instalar
+   directo da el error *"externally-managed-environment"*). Ver
+   [Instalar en Linux / Mac](#instalar-en-linux--mac).
 4. **Arrancá la app**:
    ```
    py -m uvicorn servidor.main:app --port 8000
    ```
-   y entrá a http://localhost:8000/ (mapa) o http://localhost:8000/admin
+   (en Linux/Mac: `python -m uvicorn servidor.main:app --port 8000` con el
+   entorno virtual activado) y entrá a http://localhost:8000/ (mapa) o http://localhost:8000/admin
    (contraseña inicial: `admin`; cambiala creando un archivo `.env` con
    `ADMIN_PASSWORD=tu-clave`, ver `.env.example`).
 5. **La app arranca sin cámaras.** Cargá la primera desde el admin con
@@ -35,6 +38,38 @@ autos que solo pasan o esperan el semáforo.
    de diferencia.
 
 Para publicarla en internet o conectar cámaras de otras casas, ver más abajo.
+
+## Instalar en Linux / Mac
+
+Ubuntu, Debian y derivados no dejan instalar paquetes de Python en el
+sistema (error *"This environment is externally managed"*). Se usa un
+entorno virtual: una carpeta `.venv` dentro del proyecto con sus paquetes.
+No uses `--break-system-packages`: puede romper programas del sistema.
+
+Una sola vez, desde la carpeta del proyecto:
+
+```
+sudo apt install python3-venv python3-full    # solo Ubuntu/Debian
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Cada vez que abras una terminal nueva para usar la app, primero activá el
+entorno (al principio de la línea aparece `(.venv)`) y después arrancala:
+
+```
+source .venv/bin/activate
+python -m uvicorn servidor.main:app --port 8000
+```
+
+Con el entorno activado, todos los comandos de este README funcionan
+cambiando `py` por `python` (por ejemplo `python -m scripts.simular_camaras`).
+Los `.bat` son solo para Windows: en Linux/Mac el equivalente de
+`iniciar_publico.bat` es `python -m scripts.iniciar_publico` (instalando
+antes `cloudflared` desde https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
+y el de `iniciar_camara.bat` es `python cliente_camara.py` dentro de
+`cliente_camara/` (con `pip install opencv-python`).
 
 ## Organización
 

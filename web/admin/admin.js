@@ -109,21 +109,12 @@ async function cargarLista() {
       ? `<div class="foto" style="background-image:url('/api/camaras/${encodeURIComponent(c.id)}/preview.jpg?t=${encodeURIComponent(c.actualizado_en || "")}')"></div>`
       : `<div class="foto">Sin fotos procesadas todavía</div>`;
     const bloqueados = c.prohibidos_bloqueados ? `<div class="linea" style="color:#a50e0e">⚠ ${c.prohibidos_bloqueados} zona(s) prohibida(s) bloqueada(s)</div>` : "";
-    const f = c.fuente || { tipo: "envio" };
-    let origen = "Fotos: las manda la cámara";
-    let claseOrigen = "etiqueta-fuente";
-    if (f.tipo !== "envio") {
-      origen = `Fotos: el servidor las busca (${f.tipo === "video" ? "video" : "URL de foto"}, cada ${f.intervalo} s)`;
-      if (f.captura?.error) { origen += ` · ⚠ ${f.captura.error}`; claseOrigen += " mal"; }
-      else if (f.captura?.ultima_captura) origen += ` · última captura ${haceCuanto((Date.now() - Date.parse(f.captura.ultima_captura)) / 60000)}`;
-    }
     div.innerHTML = `
       ${foto}
       <div class="cuerpo">
         <div class="linea"><strong>${escapar(c.nombre)}</strong><span class="chip" style="background:${COLORES[estado]}">${c.activa ? estado : "DESACTIVADA"}</span></div>
         <div class="linea suave"><span><code>${escapar(c.id)}</code> · ${escapar(c.direccion) || "sin dirección"}</span></div>
         <div class="linea"><span>${c.libres ?? "?"} libre${c.libres === 1 ? "" : "s"} de ${c.total}</span><span class="suave">${haceCuanto(c.minutos_desde_actualizacion)}</span></div>
-        <div class="${claseOrigen}">${escapar(origen)}</div>
         ${bloqueados}
         <div class="botones">
           <button class="boton chico" data-accion="editar">Editar</button>
@@ -210,7 +201,6 @@ async function abrirAsistente(id) {
       w.datos = { lat: cam.lat, lng: cam.lng, inicio: cam.cuadra?.[0] || null, fin: cam.cuadra?.[1] || null };
       w.espacios = cam.espacios.map((e) => ({ tipo: e.tipo, puntos: e.puntos }));
       w.apiKey = cam.api_key;
-      ponerFuente(cam.fuente);
       const blob = await api(`/api/admin/camaras/${id}/referencia.jpg`);
       await ponerReferencia(blob, false);
     } else {
@@ -219,7 +209,6 @@ async function abrirAsistente(id) {
       $("campo-direccion").value = "";
       $("campo-activa").checked = true;
       w.apiKey = null;
-      ponerFuente(null);
     }
   } catch (e) { avisar(e.message); return; }
 
@@ -257,11 +246,6 @@ function validarPaso(n) {
   if (n === 1) {
     if (!/^[a-z0-9_]{1,40}$/.test($("campo-id").value.trim())) return "El ID solo puede tener minúsculas, números y _";
     if (!$("campo-nombre").value.trim()) return "Poné un nombre para la cuadra";
-    const f = leerFuente();
-    if (f.tipo !== "envio") {
-      if (!f.url) return "Poné la dirección de la cámara (o elegí que la cámara mande las fotos)";
-      if (!(f.intervalo >= 2 && f.intervalo <= 300)) return "El intervalo tiene que estar entre 2 y 300 segundos";
-    }
   }
   if (n === 2) {
     if (w.datos.lat == null) return "Marcá la posición de la cámara en el mapa";
@@ -292,75 +276,6 @@ document.querySelectorAll("#pasos li").forEach((li) => li.addEventListener("clic
   }
   irAPaso(destino);
 }));
-
-// --- Paso 1: origen de las fotos ---------------------------------------------
-
-const AYUDA_URL = {
-  video: "Ej.: rtsp://usuario:clave@192.168.0.50:554/Streaming/Channels/101 · http://192.168.0.20:8080/video (IP Webcam) · 0 (webcam de esta PC) · C:\\videos\\cuadra.mp4",
-  foto: "Ej.: http://usuario:clave@192.168.0.50/ISAPI/Streaming/channels/101/picture · http://192.168.0.20:8080/shot.jpg (IP Webcam)",
-};
-
-function tipoFuente() {
-  return document.querySelector('input[name="fuente-tipo"]:checked').value;
-}
-
-function leerFuente() {
-  const tipo = tipoFuente();
-  if (tipo === "envio") return { tipo };
-  return { tipo, url: $("fuente-url").value.trim(), intervalo: Number($("fuente-intervalo").value) };
-}
-
-function ponerFuente(fuente) {
-  const f = fuente || { tipo: "envio" };
-  document.querySelector(`input[name="fuente-tipo"][value="${f.tipo}"]`).checked = true;
-  $("fuente-url").value = f.url || "";
-  $("fuente-intervalo").value = f.intervalo || 10;
-  $("resultado-prueba").textContent = "";
-  $("resultado-prueba").className = "suave chico";
-  $("foto-prueba").hidden = true;
-  actualizarCamposFuente();
-}
-
-function actualizarCamposFuente() {
-  const tipo = tipoFuente();
-  $("campos-fuente").hidden = tipo === "envio";
-  $("tomar-de-camara").hidden = tipo === "envio";
-  if (tipo !== "envio") {
-    $("ayuda-url").textContent = AYUDA_URL[tipo];
-    $("fuente-url").placeholder = tipo === "video" ? "rtsp://..." : "http://...";
-  }
-}
-
-document.querySelectorAll('input[name="fuente-tipo"]').forEach((r) => r.addEventListener("change", actualizarCamposFuente));
-
-async function fotoDeLaCamara() {
-  const f = leerFuente();
-  if (!f.url) throw new Error("Poné la dirección de la cámara en el paso 1");
-  return api("/api/admin/probar_fuente", { method: "POST", body: f });
-}
-
-$("probar-fuente").addEventListener("click", async () => {
-  const res = $("resultado-prueba");
-  const boton = $("probar-fuente");
-  boton.disabled = true;
-  res.className = "suave chico";
-  res.textContent = "Conectando con la cámara… (puede tardar hasta 15 s)";
-  $("foto-prueba").hidden = true;
-  try {
-    const blob = await fotoDeLaCamara();
-    const img = $("foto-prueba");
-    if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-    img.src = URL.createObjectURL(blob);
-    img.hidden = false;
-    res.className = "chico ok";
-    res.textContent = "✓ Funciona. Esta es la imagen que llega ahora.";
-  } catch (e) {
-    res.className = "chico mal";
-    res.textContent = "✗ " + e.message;
-  } finally {
-    boton.disabled = false;
-  }
-});
 
 // --- Paso 2: mapa -----------------------------------------------------------
 
@@ -468,15 +383,6 @@ $("archivo-referencia").addEventListener("change", async (e) => {
   const archivo = e.target.files[0];
   if (!archivo) return;
   try { await ponerReferencia(archivo, true); } catch (err) { errorPaso(err.message); }
-});
-
-$("tomar-de-camara").addEventListener("click", async () => {
-  const boton = $("tomar-de-camara");
-  boton.disabled = true;
-  $("info-referencia").textContent = "Pidiendo la foto a la cámara…";
-  try { await ponerReferencia(await fotoDeLaCamara(), true); }
-  catch (err) { $("info-referencia").textContent = ""; errorPaso(err.message); }
-  finally { boton.disabled = false; }
 });
 
 $("usar-ultima").addEventListener("click", async () => {
@@ -603,18 +509,7 @@ function datosFormulario() {
     lat: w.datos.lat,
     lng: w.datos.lng,
     cuadra: w.datos.inicio && w.datos.fin ? [w.datos.inicio, w.datos.fin] : null,
-    fuente: leerFuente(),
   };
-}
-
-function sinClave(url) {
-  // rtsp://usuario:clave@host -> rtsp://usuario:***@host (para no mostrar la contraseña)
-  return url.replace(/^([a-z]+:\/\/[^:/@]+):[^@]*@/i, "$1:***@");
-}
-
-function textoFuente(f) {
-  if (f.tipo === "envio") return "La cámara las manda (POST con API key)";
-  return `El servidor las busca (${f.tipo === "video" ? "video" : "URL de foto"}) cada ${f.intervalo} s de <code>${escapar(sinClave(f.url))}</code>`;
 }
 
 function descargarIni(id, key) {
@@ -659,13 +554,9 @@ function mostrarResumen() {
       <dt>Foto</dt><dd>${w.referencia.ancho} × ${w.referencia.alto}${w.referencia.nueva ? " (nueva)" : ""}</dd>
       <dt>Lugares</dt><dd>${validos} válido${validos === 1 ? "" : "s"} · ${prohibidos} zona${prohibidos === 1 ? "" : "s"} prohibida${prohibidos === 1 ? "" : "s"}</dd>
       <dt>Estado</dt><dd>${d.activa ? "Activa" : "Desactivada"}</dd>
-      <dt>Fotos</dt><dd>${textoFuente(d.fuente)}</dd>
     </dl>`;
   const key = w.creada?.api_key || w.apiKey;
-  if (d.fuente.tipo !== "envio" && w.creada) {
-    html += `<p class="suave chico">Listo: en unos segundos el servidor empieza a tomar fotos de la cámara. El estado de la captura se ve en la lista de cámaras.</p>`;
-  }
-  if (key && d.fuente.tipo === "envio") {
+  if (key) {
     const id = $("campo-id").value.trim();
     const servidor = location.origin;
     html += `

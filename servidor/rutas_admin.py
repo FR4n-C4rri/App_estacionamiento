@@ -8,13 +8,12 @@ import json
 import secrets
 
 from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import config
 import gestor_camaras as gc
 from base_de_datos import db
-from deteccion import captor
 from servidor.rutas_camaras import guardar_foto_entrante
 from servidor.rutas_usuario import resumen_camara
 
@@ -54,38 +53,10 @@ def login(datos: Login):
     return {"token": token}
 
 
-def _info_fuente(camara_id):
-    """Origen de las fotos (sin la contraseña) y, si el servidor las va a
-    buscar, cómo viene esa captura."""
-    fuente = gc.fuente_de(gc.leer_camara(camara_id))
-    info = {"tipo": fuente["tipo"]}
-    if fuente["tipo"] != "envio":
-        info["url"] = captor.url_para_mostrar(fuente["url"])
-        info["intervalo"] = fuente["intervalo"]
-        info["captura"] = captor.ESTADO.get(camara_id)
-    return info
-
-
 @router.get("/camaras", dependencies=[Depends(requiere_admin)])
 def listar():
     with db.conectar() as conn:
-        camaras = [resumen_camara(f, conn, con_espacios=True) for f in db.camaras_con_estado(conn)]
-    for c in camaras:
-        c["fuente"] = _info_fuente(c["id"])
-    return camaras
-
-
-@router.post("/probar_fuente", dependencies=[Depends(requiere_admin)])
-def probar_fuente(fuente: dict = Body(...)):
-    """Saca una foto de la cámara ahora mismo, para probar la conexión desde
-    el asistente (y usarla de foto de referencia)."""
-    try:
-        fuente = gc.validar_fuente(fuente)
-        contenido = captor.capturar(fuente)
-    except (gc.ErrorCamara, captor.ErrorCaptura) as e:
-        raise _error(e)
-    tipo = "image/png" if contenido[:4] == b"\x89PNG" else "image/jpeg"
-    return Response(content=contenido, media_type=tipo, headers={"Cache-Control": "no-store"})
+        return [resumen_camara(f, conn, con_espacios=True) for f in db.camaras_con_estado(conn)]
 
 
 @router.get("/siguiente_id", dependencies=[Depends(requiere_admin)])
@@ -99,8 +70,6 @@ def detalle(camara_id: str):
     cam = gc.leer_camara(camara_id)
     return {
         **cam,
-        "fuente": gc.fuente_de(cam),
-        "captura": captor.ESTADO.get(camara_id),
         "espacios": gc.leer_espacios(camara_id),
         "fotos_pendientes": len(list(gc.ruta_fotos(camara_id).glob("*.*"))) if gc.ruta_fotos(camara_id).exists() else 0,
         "endpoint_fotos": f"/api/camaras/{camara_id}/fotos",

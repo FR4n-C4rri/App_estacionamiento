@@ -16,7 +16,6 @@ import pytest
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 os.environ["DETECTOR"] = "off"
-os.environ["CAPTOR"] = "off"
 os.environ["ADMIN_PASSWORD"] = "clave-test"
 
 import config  # noqa: E402

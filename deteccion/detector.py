@@ -172,12 +172,8 @@ class Detector:
 
 
 if __name__ == "__main__":
-    from deteccion.captor import Captor
-
     db.crear_tablas()
     gc.sincronizar_db()
-    if config.CAPTOR == "on":
-        Captor().iniciar_en_segundo_plano()
     det = Detector()
     det.cargar_modelo()
     try:

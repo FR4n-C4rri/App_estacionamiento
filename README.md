@@ -185,15 +185,12 @@ un auto encima, así que con la primera foto siempre da "HAY LUGAR".
 
 ## Cámaras reales (fase 2)
 
-Cada cámara tiene un **origen de las fotos**, que se elige en el paso 1
-de "Agregar cámara" (o en Editar):
-
-**1. La cámara las manda** (default). Un dispositivo hace un
-`POST /api/camaras/<id>/fotos` con la foto (campo `foto`) y el header
-`X-Camera-Key: <api_key>`. Es la opción para **cámaras en otra casa / otra
-red**: la conexión sale de esa casa hacia el servidor, así que el router no
-la bloquea (al revés, desde acá no se puede llegar a una IP privada de otra
-casa). Pasos:
+Las cámaras **mandan sus fotos al servidor**: un dispositivo (la compu
+con la webcam, o una compu que lee un celular con IP Webcam o una cámara
+IP de su red) hace un `POST /api/camaras/<id>/fotos` con la foto (campo
+`foto`) y el header `X-Camera-Key: <api_key>`. Como la conexión sale de la
+casa de la cámara hacia el servidor, el router no la bloquea y funciona
+desde cualquier red. Pasos para una cámara en otra casa:
 
 1. Publicá la app con `iniciar_publico.bat` y entrá al admin **desde el
    link público**.
@@ -204,26 +201,8 @@ casa). Pasos:
    `http://IP-del-celu:8080/video` o RTSP) y hace doble clic en
    `iniciar_camara.bat` (instala OpenCV la primera vez). Ver `cliente_camara/LEEME.txt`.
 
-**2. El servidor las busca** (`deteccion/captor.py`). Pensado para
-cámaras de seguridad IP, que no pueden correr programas. Cada N segundos
-el servidor saca una foto y la deja en `camaras/<id>/fotos/`:
-
-- **Video**: `rtsp://usuario:clave@192.168.0.50:554/Streaming/Channels/101`,
-  un stream HTTP (`http://192.168.0.20:8080/video` de IP Webcam), un
-  número de webcam (`0`) o un archivo de video (para simular una cámara).
-- **URL de foto**: una dirección que devuelve un JPG por pedido, como el
-  snapshot ONVIF de las cámaras IP o `http://192.168.0.20:8080/shot.jpg`
-  de IP Webcam. Acepta usuario y clave en la URL (Basic y Digest).
-
-El botón **"Probar conexión"** del asistente saca una foto en el momento,
-y en el paso 3 **"Tomar foto desde la cámara"** la usa como referencia.
-La lista de cámaras muestra la última captura o el error de conexión. La
-condición es que el servidor llegue a la cámara (misma red o accesible
-desde internet). El usuario y la clave quedan guardados en
-`camaras/<id>/camara.json`, así que no compartas esa carpeta.
-
-En los dos casos, si las fotos tienen otra resolución que la de
-referencia, los polígonos se escalan solos.
+Si las fotos tienen otra resolución que la de referencia, los polígonos se
+escalan solos.
 
 ## Tests
 

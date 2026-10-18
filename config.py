@@ -42,6 +42,11 @@ INTERVALO_POLL = float(os.environ.get("INTERVALO_POLL", "5"))
 MAX_PROCESADAS = int(os.environ.get("MAX_PROCESADAS", "1"))
 ANCHO_PREVIEW = int(os.environ.get("ANCHO_PREVIEW", "1600"))
 
+# --- Captor (el servidor va a buscar la foto a las cámaras video/foto) ---
+CAPTOR = os.environ.get("CAPTOR", "on").lower()
+# Si ya hay esta cantidad de fotos esperando al detector, no se toma otra.
+MAX_PENDIENTES = int(os.environ.get("MAX_PENDIENTES", "3"))
+
 # --- Mapa / usuario ---
 # Si la última actualización de una cámara es más vieja que esto, se
 # muestra como "SIN DATOS" en vez de mostrar un estado viejo.
@@ -50,3 +55,12 @@ RADIO_DEFAULT_M = float(os.environ.get("RADIO_DEFAULT_M", "500"))
 
 # --- Recepción de fotos ---
 MAX_BYTES_FOTO = int(os.environ.get("MAX_BYTES_FOTO", str(20 * 1024 * 1024)))
+# Si el detector no da abasto (o está apagado), cada cámara guarda como máximo
+# estas fotos esperando: al llegar una nueva se borran las más viejas. Sin tope,
+# la carpeta fotos/ crece sin parar. 0 = sin tope.
+MAX_FOTOS_EN_COLA = int(os.environ.get("MAX_FOTOS_EN_COLA", "30"))
+
+# --- Base de datos ---
+# El historial guarda una fila por foto procesada de cada cámara. Se borran las
+# de más de estos días (0 = guardar todo).
+HISTORIAL_DIAS = int(os.environ.get("HISTORIAL_DIAS", "30"))

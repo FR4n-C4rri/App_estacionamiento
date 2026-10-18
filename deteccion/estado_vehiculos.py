@@ -3,20 +3,30 @@ Lógica de ocupación de espacios (versión refactorizada del
 estado_vehiculos.py original, para poder usarla con muchas cámaras desde
 deteccion/detector.py).
 
-La lógica NO cambió respecto del script original:
+Cómo decide si un espacio está ocupado:
   - Se detectan "car" y "volquete" con el best.pt fine-tuneado.
-  - Un espacio está ocupado si el punto de apoyo (centro inferior de la
-    caja) de alguna detección cae dentro de su polígono de forma CONTINUA
-    durante SEGUNDOS_PARA_CONFIRMAR (45 s autos, 5 s volquetes). Si en
-    alguna foto queda vacío, la racha se corta.
+  - Cada detección se reparte en el espacio donde más encaja. Encaja si la
+    parte baja de su caja (la "huella" que apoya en el suelo) cubre al menos
+    MIN_SOLAPE del polígono -o del vehículo, lo que sea más chico- o si su
+    punto de apoyo (centro inferior de la caja) cae adentro. Antes alcanzaba
+    con que ese único punto quedara unos píxeles afuera para que un auto
+    claramente estacionado no se contara, y los polígonos finos o chicos
+    lo sufrían más.
+  - Un espacio está ocupado si hay algo en él de forma CONTINUA durante
+    SEGUNDOS_PARA_CONFIRMAR (45 s autos, 5 s volquetes). Una foto suelta en
+    la que el modelo no ve el auto no corta la racha (GRACIA_S); si el
+    espacio sigue vacío más que eso, la racha se corta.
   - Las zonas "prohibido" (bajadas de garage) no cuentan para el total;
     si algo las ocupa se avisa como bloqueada.
   - Semáforo: >= 80 % LLENO, >= 50 % CASI LLENO, si no HAY LUGAR.
 
-Lo único nuevo: escalar_espacios(), por si una cámara manda fotos con
-otra resolución que la foto de referencia sobre la que se delimitó.
+También: escalar_espacios(), por si una cámara manda fotos con otra
+resolución que la foto de referencia sobre la que se delimitó, y
+GeometriaEspacios, que deja los polígonos listos una sola vez en lugar de
+reconstruirlos por cada detección de cada foto.
 """
 
+import math
 import os
 import time
 
@@ -33,6 +43,20 @@ SEGUNDOS_PARA_CONFIRMAR = {
 }
 
 CONF_MIN = float(os.environ.get("CONF_MIN", "0.35"))
+
+# Qué parte de la caja (contando desde abajo) se toma como lo que el vehículo
+# apoya en el suelo. Los espacios se dibujan sobre esa franja, no sobre el techo.
+HUELLA_FRAC = float(os.environ.get("HUELLA_FRAC", "0.5"))
+# Cuánto tiene que quedar cubierto (0 a 1) para que una detección cuente en un
+# espacio, medido contra lo más chico entre el polígono y la huella.
+MIN_SOLAPE = float(os.environ.get("MIN_SOLAPE", "0.25"))
+# Segundos que un espacio puede figurar vacío (el modelo no ve el auto en una o
+# dos fotos) sin que se corte la racha. Con fotos cada 10 s tolera 2 seguidas.
+GRACIA_S = float(os.environ.get("GRACIA_S", "25"))
+# Tamaño de entrada del modelo. 0 = el que trae el modelo (640). Subirlo
+# (960, 1280) ayuda con autos lejanos, a costa de más CPU.
+IMGSZ = int(os.environ.get("IMGSZ", "0"))
+
 EXTENSIONES_VALIDAS = {".jpg", ".jpeg", ".png"}
 SEGUNDOS_ANTIGUEDAD_MINIMA = 1.0  # evita leer un archivo a medio escribir
 
@@ -54,6 +78,76 @@ def punto_de_apoyo(xyxy):
 def punto_dentro(punto, poligono_pts):
     poly = np.array(poligono_pts, dtype=np.int32)
     return cv2.pointPolygonTest(poly, punto, False) >= 0
+
+
+def huella(xyxy):
+    """Franja de la caja que el vehículo apoya en el suelo: su parte baja."""
+    x1, y1, x2, y2 = xyxy
+    return x1, y2 - (y2 - y1) * HUELLA_FRAC, x2, y2
+
+
+class GeometriaEspacios:
+    """Los polígonos de una cámara, listos para consultar. Se arma UNA vez por
+    cámara y resolución (no por cada detección de cada foto)."""
+
+    def __init__(self, espacios):
+        self.espacios = espacios
+        self.ids = [e["id"] for e in espacios]
+        self.pts = []     # vértices de cada polígono
+        self.cajas = []   # (x1, y1, x2, y2) del rectángulo que encierra a cada uno
+        self.areas = []   # píxeles que cubre cada polígono
+        for esp in espacios:
+            pts = np.array(esp["puntos"], dtype=np.int32)
+            x, y, w, h = cv2.boundingRect(pts)
+            mascara = np.zeros((h, w), np.uint8)
+            cv2.fillPoly(mascara, [(pts - (x, y)).astype(np.int32)], 1)
+            self.pts.append(pts)
+            self.cajas.append((x, y, x + w, y + h))
+            self.areas.append(max(1, cv2.countNonZero(mascara)))
+
+    def cobertura(self, i, zona):
+        """Cuánto de lo más chico entre el polígono `i` y la `zona` (x1, y1, x2, y2)
+        queda tapado por el otro, de 0 a 1. Solo rasteriza la parte en común."""
+        hx1, hy1, hx2, hy2 = zona
+        bx1, by1, bx2, by2 = self.cajas[i]
+        x1, y1 = max(bx1, math.floor(hx1)), max(by1, math.floor(hy1))
+        x2, y2 = min(bx2, math.ceil(hx2)), min(by2, math.ceil(hy2))
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        mascara = np.zeros((y2 - y1, x2 - x1), np.uint8)
+        cv2.fillPoly(mascara, [(self.pts[i] - (x1, y1)).astype(np.int32)], 1)
+        area_zona = max(1.0, (hx2 - hx1) * (hy2 - hy1))
+        return min(1.0, cv2.countNonZero(mascara) / min(self.areas[i], area_zona))
+
+    def punto_dentro(self, i, punto):
+        x1, y1, x2, y2 = self.cajas[i]
+        if not (x1 <= punto[0] < x2 and y1 <= punto[1] < y2):
+            return False
+        return cv2.pointPolygonTest(self.pts[i], (float(punto[0]), float(punto[1])), False) >= 0
+
+    def asignar(self, cajas, nombres):
+        """Reparte cada detección en el espacio donde más encaja. Devuelve
+        {id_espacio: (nombre_clase, cobertura)}; si varias detecciones caen en el
+        mismo espacio queda la que más lo cubre. Una detección cuenta para UN solo
+        espacio: un auto entre dos lugares no marca los dos."""
+        asignadas = {}
+        for caja, nombre in zip(cajas, nombres):
+            punto = punto_de_apoyo(caja)
+            zona = huella(caja)
+            mejor = None
+            for i in range(len(self.ids)):
+                cob = self.cobertura(i, zona)
+                if cob < MIN_SOLAPE and not self.punto_dentro(i, punto):
+                    continue
+                if mejor is None or cob > mejor[1]:
+                    mejor = (i, cob)
+            if mejor is None:
+                continue
+            esp_id = self.ids[mejor[0]]
+            previa = asignadas.get(esp_id)
+            if previa is None or mejor[1] > previa[1]:
+                asignadas[esp_id] = (nombre, mejor[1])
+        return asignadas
 
 
 def escalar_espacios(espacios, tam_referencia, tam_foto):
@@ -83,19 +177,39 @@ def mapa_de_clases(model):
 
 class OcupacionEspacios:
     """Por cada espacio, mide desde cuándo hay ALGO ocupándolo de forma
-    continua — sin importar si es el mismo auto o uno distinto."""
+    continua — sin importar si es el mismo auto o uno distinto.
 
-    def __init__(self):
-        self.racha = {}  # esp_id -> (timestamp de inicio de la racha, nombre_clase)
+    `gracia_s`: segundos que el espacio puede figurar vacío sin cortar la racha
+    (por defecto 0: un solo hueco la corta, como antes)."""
+
+    def __init__(self, gracia_s=0.0):
+        self.gracia_s = gracia_s
+        self.racha = {}  # esp_id -> (inicio de la racha, nombre_clase, último momento visto)
 
     def actualizar(self, esp_id, nombre_clase, ahora):
+        """Hay algo en el espacio. Devuelve cuántos segundos lleva ahí."""
         entrada = self.racha.get(esp_id)
         if entrada is None or entrada[1] != nombre_clase:
-            self.racha[esp_id] = (ahora, nombre_clase)
+            self.racha[esp_id] = (ahora, nombre_clase, ahora)
             return 0.0
+        self.racha[esp_id] = (entrada[0], nombre_clase, ahora)
         return ahora - entrada[0]
 
+    def ausente(self, esp_id, ahora):
+        """El espacio figura vacío en esta foto. Si la racha todavía está dentro
+        de la gracia la conserva y devuelve (segundos que llevaba, clase); si
+        no, la corta y devuelve None."""
+        entrada = self.racha.get(esp_id)
+        if entrada is None:
+            return None
+        inicio, nombre_clase, visto = entrada
+        if not self.gracia_s or ahora - visto > self.gracia_s:
+            del self.racha[esp_id]
+            return None
+        return visto - inicio, nombre_clase
+
     def liberar(self, esp_id):
+        """Corta la racha ya, sin gracia."""
         self.racha.pop(esp_id, None)
 
 
@@ -159,38 +273,43 @@ def fotos_nuevas(carpeta, ya_procesadas):
     return candidatos
 
 
-def analizar_foto(frame, ahora, model, clases, id_a_nombre, espacios, ocupacion):
+def analizar_foto(frame, ahora, model, clases, id_a_nombre, espacios, ocupacion, geometria=None):
     """Corre la detección sobre UNA foto (ya leída) y actualiza la ocupación
     de cada espacio. Dibuja todo sobre `frame`. Devuelve un dict con el
-    resultado para guardarlo en la base."""
-    resultados = model(frame, classes=list(clases.values()), conf=CONF_MIN, verbose=False)[0]
+    resultado para guardarlo en la base.
 
-    clase_en_espacio = {}
-    detecciones = []
-    for box, cls_id in zip(resultados.boxes.xyxy.tolist(), resultados.boxes.cls.tolist()):
-        nombre_clase = id_a_nombre[int(cls_id)]
-        detecciones.append(nombre_clase)
-        punto = punto_de_apoyo(box)
-        for esp in espacios:
-            if esp["id"] in clase_en_espacio:
-                continue
-            if punto_dentro(punto, esp["puntos"]):
-                clase_en_espacio[esp["id"]] = nombre_clase
+    `geometria`: GeometriaEspacios ya armada para estos `espacios` (el detector
+    la reutiliza foto tras foto); si no se pasa, se arma acá."""
+    parametros = {"classes": list(clases.values()), "conf": CONF_MIN, "verbose": False}
+    if IMGSZ:
+        parametros["imgsz"] = IMGSZ
+    resultados = model(frame, **parametros)[0]
+    cajas = resultados.boxes.xyxy.tolist()
+    nombres = [id_a_nombre[int(c)] for c in resultados.boxes.cls.tolist()]
 
-        x1, y1, x2, y2 = box
-        grosor = max(2, frame.shape[1] // 800)
+    asignadas = (geometria or GeometriaEspacios(espacios)).asignar(cajas, nombres)
+
+    grosor = max(2, frame.shape[1] // 800)
+    escala_texto = max(0.45, frame.shape[1] / 2000)
+    for (x1, y1, x2, y2), nombre_clase in zip(cajas, nombres):
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), COLOR_DETECCION, grosor)
         cv2.putText(frame, nombre_clase, (int(x1), int(y1) - 6),
-                    cv2.FONT_HERSHEY_SIMPLEX, max(0.45, frame.shape[1] / 2000), COLOR_DETECCION, grosor)
+                    cv2.FONT_HERSHEY_SIMPLEX, escala_texto, COLOR_DETECCION, grosor)
 
     ocupado_por_id = set()
     bloqueado_por_id = set()
+    en_gracia = []
     for esp in espacios:
-        nombre_clase = clase_en_espacio.get(esp["id"])
-        if nombre_clase is None:
-            ocupacion.liberar(esp["id"])
-            continue
-        tiempo = ocupacion.actualizar(esp["id"], nombre_clase, ahora)
+        asignada = asignadas.get(esp["id"])
+        if asignada is not None:
+            nombre_clase = asignada[0]
+            tiempo = ocupacion.actualizar(esp["id"], nombre_clase, ahora)
+        else:
+            previa = ocupacion.ausente(esp["id"], ahora)
+            if previa is None:
+                continue
+            tiempo, nombre_clase = previa  # sigue contando: no se la vio un momento
+            en_gracia.append(esp["id"])
         if tiempo >= SEGUNDOS_PARA_CONFIRMAR[nombre_clase]:
             destino = ocupado_por_id if esp["tipo"] == "valido" else bloqueado_por_id
             destino.add(esp["id"])
@@ -210,6 +329,7 @@ def analizar_foto(frame, ahora, model, clases, id_a_nombre, espacios, ocupacion)
         "total": total_lugares,
         "porcentaje": porcentaje,
         "estado": estado_txt,
-        "detecciones": detecciones,
-        "en_racha": sorted(clase_en_espacio),
+        "detecciones": nombres,
+        "en_racha": sorted(asignadas),
+        "en_gracia": sorted(en_gracia),
     }

@@ -19,6 +19,7 @@ import re
 import secrets
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -123,8 +124,47 @@ def generar_api_key():
 
 # --- Validaciones ----------------------------------------------------------
 
+TIPOS_FUENTE = {"envio", "video", "foto"}
+VIDEO_URL = re.compile(r"^(rtsps?|https?)://", re.IGNORECASE)
+
+
+def validar_fuente(fuente):
+    """De dónde salen las fotos de la cámara:
+      {"tipo": "envio"}  la cámara las manda por HTTP con su API key (default)
+      {"tipo": "video", "url": ..., "intervalo": s}  el servidor saca una foto de un
+          video: RTSP, stream HTTP, número de webcam o archivo de video
+      {"tipo": "foto", "url": ..., "intervalo": s}   el servidor pide una foto a una URL
+          (snapshot ONVIF, /shot.jpg de IP Webcam, etc.)"""
+    fuente = fuente or {}
+    tipo = fuente.get("tipo", "envio")
+    if tipo not in TIPOS_FUENTE:
+        raise ErrorCamara(f"Origen de fotos inválido: {tipo}")
+    if tipo == "envio":
+        return {"tipo": "envio"}
+
+    url = str(fuente.get("url", "")).strip()
+    if not url:
+        raise ErrorCamara("Falta la dirección de la cámara")
+    if tipo == "foto" and not url.lower().startswith(("http://", "https://")):
+        raise ErrorCamara("La URL de foto tiene que empezar con http:// o https://")
+    if tipo == "video" and not (url.isdigit() or VIDEO_URL.match(url) or Path(url).is_file()):
+        raise ErrorCamara("El video tiene que ser rtsp://..., http(s)://..., un número de webcam o un archivo de video existente")
+    try:
+        intervalo = float(fuente.get("intervalo", 10))
+    except (TypeError, ValueError):
+        raise ErrorCamara("El intervalo tiene que ser un número de segundos")
+    if not 2 <= intervalo <= 300:
+        raise ErrorCamara("El intervalo tiene que estar entre 2 y 300 segundos")
+    return {"tipo": tipo, "url": url, "intervalo": intervalo}
+
+
+def fuente_de(cam):
+    return cam.get("fuente") or {"tipo": "envio"}
+
+
 def validar_datos(datos):
-    """Normaliza y valida los datos editables de una cámara."""
+    """Normaliza y valida los datos editables de una cámara. El origen de
+    las fotos ("fuente") solo se toca si viene en `datos`."""
     nombre = str(datos.get("nombre", "")).strip()
     if not nombre:
         raise ErrorCamara("Falta el nombre de la cámara / cuadra")
@@ -146,7 +186,7 @@ def validar_datos(datos):
     else:
         cuadra = None
 
-    return {
+    limpios = {
         "nombre": nombre,
         "direccion": str(datos.get("direccion", "")).strip(),
         "lat": lat,
@@ -154,6 +194,9 @@ def validar_datos(datos):
         "cuadra": cuadra,
         "activa": bool(datos.get("activa", True)),
     }
+    if "fuente" in datos:
+        limpios["fuente"] = validar_fuente(datos["fuente"])
+    return limpios
 
 
 def validar_espacios(espacios, ancho, alto):
@@ -214,6 +257,7 @@ def crear(camara_id, datos, espacios, referencia_bytes):
     _escribir_json(ruta_espacios(camara_id), espacios)
     cam = {
         "id": camara_id,
+        "fuente": {"tipo": "envio"},
         **datos,
         "api_key": generar_api_key(),
         "referencia": {"ancho": ancho, "alto": alto},
@@ -242,10 +286,37 @@ def actualizar_referencia(camara_id, contenido):
     return ancho, alto
 
 
+def fotos_pendientes(camara_id):
+    carp = ruta_fotos(camara_id)
+    if not carp.exists():
+        return 0
+    return sum(1 for p in carp.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"})
+
+
+def recortar_pendientes(camara_id, maximo=None):
+    """Si hay más de `maximo` fotos esperando al detector (default
+    config.MAX_FOTOS_EN_COLA), borra las más viejas. Devuelve cuántas borró."""
+    maximo = config.MAX_FOTOS_EN_COLA if maximo is None else maximo
+    carp = ruta_fotos(camara_id)
+    if maximo <= 0 or not carp.exists():
+        return 0
+    fotos = sorted((p for p in carp.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"}),
+                   key=lambda p: p.stat().st_mtime)
+    borradas = 0
+    for vieja in fotos[:max(0, len(fotos) - maximo)]:
+        try:
+            vieja.unlink()
+            borradas += 1
+        except OSError:
+            pass  # el detector la estaba moviendo justo ahora
+    return borradas
+
+
 def guardar_foto(camara_id, contenido):
     """Deja una foto nueva en camaras/<id>/fotos/ para que la procese el
     detector. Se escribe con otro nombre y después se renombra, para que el
-    detector nunca lea un archivo a medio escribir. Devuelve el nombre."""
+    detector nunca lea un archivo a medio escribir. Si ya se acumulan más de
+    config.MAX_FOTOS_EN_COLA se descartan las más viejas. Devuelve el nombre."""
     if len(contenido) > config.MAX_BYTES_FOTO:
         raise ErrorCamara("La foto es demasiado grande")
     ext, _, _, _ = decodificar_imagen(contenido)
@@ -255,6 +326,7 @@ def guardar_foto(camara_id, contenido):
     tmp = carp / (nombre + ".subiendo")
     tmp.write_bytes(contenido)
     tmp.replace(carp / nombre)
+    recortar_pendientes(camara_id)
     return nombre
 
 

@@ -6,7 +6,7 @@ escribir mientras el servidor lee (se activa el modo WAL para eso).
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import config
 
@@ -122,3 +122,13 @@ def borrar_estado(conn, camara_id):
     """Se usa cuando cambian los espacios de una cámara: el estado viejo ya no aplica."""
     conn.execute("DELETE FROM camaras_estado WHERE camara = ?", (camara_id,))
     conn.execute("DELETE FROM espacios_estado WHERE camara = ?", (camara_id,))
+
+
+def podar_historial(conn, dias):
+    """Borra las filas de historial de más de `dias` días. Devuelve cuántas
+    borró. Con dias <= 0 no borra nada. Se guardan en UTC ISO-8601, así que
+    comparar el texto equivale a comparar las fechas."""
+    if not dias or dias <= 0:
+        return 0
+    limite = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+    return conn.execute("DELETE FROM historial WHERE registrado_en < ?", (limite,)).rowcount

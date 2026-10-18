@@ -4,9 +4,13 @@ Cámaras que sacan fotos de una cuadra → YOLO (`best.pt`) detecta autos y
 volquetes → se calcula cuántos de los lugares delimitados están ocupados →
 un mapa muestra, cerca del usuario, cuántos lugares libres hay en cada cuadra.
 
-Un lugar se considera ocupado cuando un auto (o volquete) está dentro de su
+Un lugar se considera ocupado cuando un auto (o volquete) está sobre su
 polígono de forma continua durante 45 s (5 s volquetes), para no contar
-autos que solo pasan o esperan el semáforo.
+autos que solo pasan o esperan el semáforo. Para saber si un auto está en un
+lugar se mira la parte baja de su caja (lo que apoya en el suelo), no un solo
+punto, así que los polígonos chicos o finos también funcionan; y si el modelo
+no ve el auto en una foto suelta, no se reinicia la cuenta de los 45 s.
+Ver [Ajustar la detección](#ajustar-la-detección).
 
 ## Inicio rápido (si lo acabás de descargar)
 
@@ -84,8 +88,10 @@ estacionamiento_app/
 │       ├── fotos/          ← acá entran las fotos nuevas (las revisa el detector)
 │       ├── procesadas/     última foto analizada (las anteriores se borran solas)
 │       └── preview.jpg     última foto con todo dibujado
-├── deteccion/          best.pt, estado_vehiculos.py (lógica), detector.py (todas las cámaras), calibrar_espacios.py
+├── deteccion/          best.pt, estado_vehiculos.py (lógica), detector.py (todas las cámaras),
+│                       captor.py (va a buscar las fotos por RTSP o URL), calibrar_espacios.py
 ├── servidor/           API FastAPI (main.py, rutas_usuario.py, rutas_admin.py, rutas_camaras.py)
+├── tests/              pytest + servidores_falsos.py (cámaras IP de mentira para probar el captor)
 ├── web/                usuario/ (mapa) y admin/ (panel)
 ├── scripts/            iniciar_publico.py (servidor + túnel), simular_camaras.py, migrar_camara_existente.py
 ├── cliente_camara/     lo que se le pasa a quien tiene una cámara en otra casa (cliente + camara.ini)
@@ -185,6 +191,9 @@ un auto encima, así que con la primera foto siempre da "HAY LUGAR".
 
 ## Cámaras reales (fase 2)
 
+(Si la cámara está en tu misma red y expone RTSP o una URL de foto, no hace
+falta nada de esto: ver [Que el servidor busque las fotos](#que-el-servidor-busque-las-fotos-rtsp-o-url-de-foto).)
+
 Las cámaras **mandan sus fotos al servidor**: un dispositivo (la compu
 con la webcam, o una compu que lee un celular con IP Webcam o una cámara
 IP de su red) hace un `POST /api/camaras/<id>/fotos` con la foto (campo
@@ -204,11 +213,69 @@ desde cualquier red. Pasos para una cámara en otra casa:
 Si las fotos tienen otra resolución que la de referencia, los polígonos se
 escalan solos.
 
+## Que el servidor busque las fotos (RTSP o URL de foto)
+
+Si la cámara está en la misma red que el servidor (o hay una VPN) y expone
+su imagen, **no hace falta ningún programa en la cámara**: el servidor va a
+buscar la foto cada tanto. En el admin, al agregar o editar la cámara, en
+**"¿Cómo llegan las fotos?"** se elige:
+
+| Opción | Para qué | Ejemplos de dirección |
+|---|---|---|
+| **La cámara las manda** | Cámara en otra casa o red (fase 2) | `cliente_camara/` |
+| **El servidor las busca: video** | Cámara de seguridad por **RTSP**, stream HTTP, webcam o archivo de video | `rtsp://usuario:clave@192.168.0.50:554/Streaming/Channels/101` · `http://192.168.0.20:8080/video` (IP Webcam) · `0` (webcam de esta compu) |
+| **El servidor las busca: URL de foto** | Una dirección que devuelve una **foto por pedido** (snapshot) | `http://usuario:clave@192.168.0.50/ISAPI/Streaming/channels/101/picture` · `http://192.168.0.20:8080/shot.jpg` (IP Webcam) |
+
+Las direcciones exactas dependen de la marca y el modelo (en el manual de la
+cámara figuran como "RTSP URL" y "snapshot URL"). Detalles:
+
+- **Probar conexión** (en el primer paso del asistente) saca una foto en el
+  momento y la muestra, antes de guardar. En el paso de la foto de
+  referencia, **Tomar foto desde la cámara** la usa para marcar los lugares.
+- Usuario y clave van en la dirección (`usuario:clave@`). Si la clave tiene
+  símbolos, hay que escribirlos codificados (`@` → `%40`, `#` → `%23`). En la
+  lista del admin y en los registros la clave se muestra como `***`.
+- La foto por URL acepta autenticación **Basic y Digest** (la que usan Hikvision
+  y Dahua). El video RTSP va **por TCP**, más estable que UDP.
+- Se saca una foto cada **N segundos** (2 a 300; con 10 va bien: tiene que ser
+  bastante menos que los 45 s que tarda en confirmarse un lugar). En RTSP cada
+  captura abre y cierra la conexión, lo que tarda un par de segundos.
+- Si el detector viene atrasado y ya hay `MAX_PENDIENTES` fotos esperando, no
+  se toma otra. Si la cámara no contesta, el error se ve en la lista del
+  admin y se reintenta solo; si vuelve, retoma sin tocar nada.
+- Una cámara que abre la conexión pero no manda imágenes (ocupada, o con
+  el perfil equivocado) se descarta a los ~30 s como máximo.
+- Para apagarlo: `CAPTOR=off` en `.env` (las cámaras que mandan sus fotos
+  siguen andando).
+
+## Ajustar la detección
+
+Todo se cambia en `.env` (ver `.env.example`):
+
+| Variable | Qué hace | Cuándo tocarla |
+|---|---|---|
+| `MIN_SOLAPE` (0.25) | Cuánto de la parte baja de la caja del auto tiene que tapar al lugar para contarlo | Bajala si marcaste lugares muy chicos y el auto figura afuera; subila si un auto marca también el lugar vecino |
+| `HUELLA_FRAC` (0.5) | Qué parte de la caja, desde abajo, se toma como lo que apoya en el suelo | Orientativo: cámaras que miran muy de arriba, subila (0.7); muy de costado, bajala (0.35) |
+| `GRACIA_S` (25) | Segundos que un lugar puede figurar vacío (el modelo no ve el auto en una o dos fotos) sin reiniciar la cuenta | Pensada para fotos cada ~10 s (tolera 2 seguidas sin ver el auto). Subila si el modelo parpadea mucho o si sacás las fotos más espaciadas; `0` = como antes (un solo hueco reinicia) |
+| `CONF_MIN` (0.35) | Confianza mínima de YOLO | Bajala con autos lejanos o tapados (más falsos positivos) |
+| `IMGSZ` (0 = el del modelo, 640) | Tamaño de entrada de YOLO | `960` o `1280` ayudan con autos lejanos en fotos grandes; usan bastante más CPU |
+| `MAX_FOTOS_EN_COLA` (30) | Fotos esperando por cámara; al pasarse se borran las más viejas | Evita que `fotos/` crezca sin parar si el detector está apagado o atrasado |
+| `HISTORIAL_DIAS` (30) | Días que se guarda el historial (una fila por foto) | `0` = guardar todo |
+
+En el log del detector, `sin verse un momento: [...]` indica lugares que
+siguen contando aunque en esa foto el modelo no viera el auto.
+
 ## Tests
 
 ```
 py -m pytest
 ```
+
+Cubren la lógica de detección (con un modelo de mentira, sin YOLO), el
+detector contra una carpeta de fotos y la base, la API y el captor. Para el
+captor se levantan **cámaras IP de mentira** (`tests/servidores_falsos.py`):
+snapshot con Basic/Digest, stream MJPEG y un servidor RTSP real sobre TCP. Este
+último necesita `ffmpeg` instalado; si no está, esos tests se saltean.
 
 ## Limitación conocida del modelo
 

@@ -40,6 +40,7 @@ class Detector:
         self.por_camara = {}  # id -> {"ocupacion", "firma_espacios", "fallidas"}
         self._parar = threading.Event()
         self._hilo = None
+        self._ultima_poda = 0.0
 
     # --- Modelo ---
 
@@ -63,7 +64,8 @@ class Detector:
         if est is None or est["firma_espacios"] != firma:
             if est is not None:
                 self.log(f"[detector] {camara_id}: cambiaron los espacios, reinicio la racha")
-            est = {"ocupacion": ev.OcupacionEspacios(), "firma_espacios": firma, "fallidas": set()}
+            est = {"ocupacion": ev.OcupacionEspacios(gracia_s=ev.GRACIA_S), "firma_espacios": firma,
+                   "fallidas": set(), "clave_geometria": None}
             self.por_camara[camara_id] = est
         return est
 
@@ -84,11 +86,14 @@ class Detector:
                 continue
             if not cam.get("activa", True):
                 continue
+            est = self._estado(camara_id)
+            fotos = ev.fotos_nuevas(str(gc.ruta_fotos(camara_id)), est["fallidas"])
+            if not fotos:
+                continue  # nada nuevo: no hace falta ni leer los espacios
             espacios = gc.leer_espacios(camara_id)
             if gc.total_lugares(espacios) == 0:
                 continue
-            est = self._estado(camara_id)
-            for mtime, ruta in ev.fotos_nuevas(str(gc.ruta_fotos(camara_id)), est["fallidas"]):
+            for mtime, ruta in fotos:
                 self.cargar_modelo()
                 if self.procesar(camara_id, cam, espacios, est, ruta, mtime):
                     procesadas += 1
@@ -103,10 +108,18 @@ class Detector:
 
         ref = cam.get("referencia") or {}
         tam_ref = (ref["ancho"], ref["alto"]) if ref.get("ancho") else None
-        espacios_foto = ev.escalar_espacios(espacios, tam_ref, (frame.shape[1], frame.shape[0]))
+        tam_foto = (frame.shape[1], frame.shape[0])
+        if est["clave_geometria"] != (tam_ref, tam_foto):
+            # Se rehace solo si cambia la resolución de la foto o de la referencia
+            # (si se editan los espacios, `est` entero se reinicia en _estado).
+            espacios_foto = ev.escalar_espacios(espacios, tam_ref, tam_foto)
+            est["espacios_foto"] = espacios_foto
+            est["geometria"] = ev.GeometriaEspacios(espacios_foto)
+            est["clave_geometria"] = (tam_ref, tam_foto)
+        espacios_foto = est["espacios_foto"]
 
         r = ev.analizar_foto(frame, mtime, self.model, self.clases, self.id_a_nombre,
-                             espacios_foto, est["ocupacion"])
+                             espacios_foto, est["ocupacion"], est["geometria"])
 
         with db.conectar() as conn:
             if not conn.execute("SELECT 1 FROM camaras WHERE id = ?", (camara_id,)).fetchone():
@@ -118,9 +131,10 @@ class Detector:
         self._archivar(camara_id, ruta, est)
 
         marca = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
+        gracia = f", sin verse un momento: {r['en_gracia']}" if r["en_gracia"] else ""
         self.log(f"[detector] [{marca}] {camara_id} {os.path.basename(ruta)} -> "
                  f"{r['ocupados']}/{r['total']} ({r['porcentaje']:.0f}%) {r['estado']} "
-                 f"| detecciones: {len(r['detecciones'])}, en racha: {r['en_racha']}")
+                 f"| detecciones: {len(r['detecciones'])}, en racha: {r['en_racha']}{gracia}")
         return True
 
     def _guardar_preview(self, camara_id, frame):
@@ -152,10 +166,22 @@ class Detector:
 
     # --- Bucle ---
 
+    def podar_historial(self):
+        """Borra del historial lo más viejo que config.HISTORIAL_DIAS (una fila
+        por foto por cámara: sin esto la tabla crece para siempre)."""
+        self._ultima_poda = time.time()
+        with db.conectar() as conn:
+            borradas = db.podar_historial(conn, config.HISTORIAL_DIAS)
+        if borradas:
+            self.log(f"[detector] Historial: borré {borradas} filas de más de {config.HISTORIAL_DIAS} días")
+        return borradas
+
     def correr(self):
         self.log(f"[detector] Mirando {config.CARPETA_CAMARAS}/*/fotos cada {self.intervalo}s")
         while not self._parar.is_set():
             try:
+                if time.time() - self._ultima_poda >= 3600:
+                    self.podar_historial()
                 self.ciclo()
             except Exception as e:  # que un error puntual no mate el detector
                 self.log(f"[detector] Error en el ciclo: {e!r}")
@@ -172,8 +198,12 @@ class Detector:
 
 
 if __name__ == "__main__":
+    from deteccion.captor import Captor
+
     db.crear_tablas()
     gc.sincronizar_db()
+    if config.CAPTOR == "on":
+        Captor().iniciar_en_segundo_plano()
     det = Detector()
     det.cargar_modelo()
     try:

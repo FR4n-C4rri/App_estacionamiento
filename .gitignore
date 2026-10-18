@@ -17,3 +17,6 @@ __pycache__/
 # --- Entorno virtual (Linux/Mac) ---
 .venv/
 venv/
+
+# --- macOS ---
+.DS_Store

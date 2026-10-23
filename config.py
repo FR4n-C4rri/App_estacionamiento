@@ -42,11 +42,6 @@ INTERVALO_POLL = float(os.environ.get("INTERVALO_POLL", "5"))
 MAX_PROCESADAS = int(os.environ.get("MAX_PROCESADAS", "1"))
 ANCHO_PREVIEW = int(os.environ.get("ANCHO_PREVIEW", "1600"))
 
-# --- Captor (el servidor va a buscar la foto a las cámaras video/foto) ---
-CAPTOR = os.environ.get("CAPTOR", "on").lower()
-# Si ya hay esta cantidad de fotos esperando al detector, no se toma otra.
-MAX_PENDIENTES = int(os.environ.get("MAX_PENDIENTES", "3"))
-
 # --- Mapa / usuario ---
 # Si la última actualización de una cámara es más vieja que esto, se
 # muestra como "SIN DATOS" en vez de mostrar un estado viejo.

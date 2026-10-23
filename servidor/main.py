@@ -7,8 +7,7 @@ Servidor de la app. Desde la raíz del proyecto:
     http://localhost:8000/admin   -> modo admin
 
 Al arrancar crea las tablas, sincroniza las carpetas de camaras/ con la
-base y corre en segundo plano el detector (DETECTOR=on) y el captor que
-va a buscar las fotos a las cámaras de tipo video/foto (CAPTOR=on).
+base y (si DETECTOR=on) corre el detector en segundo plano.
 """
 
 from contextlib import asynccontextmanager
@@ -28,20 +27,13 @@ async def ciclo_de_vida(app):
     db.crear_tablas()
     ids = gc.sincronizar_db()
     print(f"[servidor] {len(ids)} cámara(s): {', '.join(ids) or '-'}")
-    detector = captor = None
+    detector = None
     if config.DETECTOR == "on":
         from deteccion.detector import Detector
 
         detector = Detector()
         detector.iniciar_en_segundo_plano()
-    if config.CAPTOR == "on":
-        from deteccion.captor import Captor
-
-        captor = Captor()
-        captor.iniciar_en_segundo_plano()
     yield
-    if captor:
-        captor.detener()
     if detector:
         detector.detener()
 

@@ -12,20 +12,23 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 os.environ["DETECTOR"] = "off"
-os.environ["CAPTOR"] = "off"
 
 import config  # noqa: E402
 import gestor_camaras as gc  # noqa: E402
 from base_de_datos import db  # noqa: E402
 from deteccion import estado_vehiculos as ev  # noqa: E402
 from deteccion.detector import Detector  # noqa: E402
-from servidores_falsos import foto_jpg  # noqa: E402
+
+
+def foto_jpg(ancho=320, alto=240, gris=120):
+    return cv2.imencode(".jpg", np.full((alto, ancho, 3), gris, np.uint8))[1].tobytes()
 
 CLASES = {"car": 0, "volquete": 1}
 ID_A_NOMBRE = {0: "car", 1: "volquete"}
